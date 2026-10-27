@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Составитель графика</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#d5d8de;--card:#f6f7f9;--grid:#9db4ff;--grid2:#2a3cff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171c;--fg:#e8e9ec;--mut:#9aa0aa;--line:#333842;--card:#1e2128;--grid:#3a4a8a;--grid2:#6f82ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;padding:12px}
+h1{font-size:18px;margin:0 0 10px}h2{font-size:14px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%}th,td{padding:4px;text-align:left;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--mut);font-weight:600}
+input,select,button{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:4px}
+input.num{width:64px}button{cursor:pointer}
+#tabs button{padding:6px 14px;margin-right:6px}#tabs button.on{background:var(--grid2);color:#fff;border-color:var(--grid2)}
+.sw{display:inline-block;width:26px;height:0;border-top:4px solid;vertical-align:middle;margin-right:4px}
+.tr{margin-bottom:10px}.tr b{display:flex;align-items:center;gap:6px}
+.tr div.s{display:flex;justify-content:space-between;gap:8px;padding:1px 0 1px 12px;font-size:13px}
+.est{color:var(--mut)}.sub{background:var(--bg);border-radius:6px;padding:6px}.sub table{width:auto}.sub input.est{color:var(--mut)}
+.login{max-width:320px;margin:15vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px}.login h1{margin-bottom:12px}.login input{width:100%;margin-bottom:10px;padding:8px}.login button{width:100%;padding:8px;background:var(--grid2);color:#fff;border-color:var(--grid2)}#lerr{color:#d33;min-height:18px;margin:6px 0 0;font-size:13px}[hidden]{display:none!important}.top{display:flex;justify-content:space-between;align-items:center;gap:8px}.top span{color:var(--mut)}
+</style></head><body>
+<div class="login" id="login"><h1>Вход</h1>
+<input id="lu" placeholder="Логин" autocomplete="username" autocapitalize="off">
+<input id="lp" type="password" placeholder="Пароль" autocomplete="current-password">
+<button id="lb" onclick="doLogin()">Войти</button><p id="lerr"></p></div>
+<div id="app" hidden>
+<div class="top"><h1>Составитель графика движения</h1><span><span id="who"></span> <button onclick="logout()">Выйти</button></span></div>
+<div id="tabs"></div>
+<div class="card"><h2>Таблица поездов</h2>
+ <table><thead><tr><th>№</th><th>Тип / цвет</th><th>Откуда</th><th>Отпр.</th><th>Куда</th><th>Приб.</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+ <p><button onclick="addTrain()">+ Добавить поезд</button> <button onclick="exportCSV()">⬇ Скачать таблицу</button></p>
+ <p class="est">Кнопка ▾ у поезда открывает станции по пути: у каждой есть «Приб.» и «Отпр.» рядом. Введёте приход, отправление встанет само через 1 минуту.</p>
+</div>
+<div class="card"><h2>График</h2>
+<p>Потяните мышью от точки к точке, чтобы провести нитку. Тип: <select id="dt"></select> Часы: <input class="num" type="number" min="0" max="23" value="17" onchange="HR.a=+this.value;draw()"> – <input class="num" type="number" min="1" max="24" value="24" onchange="HR.b=+this.value;draw()"></p>
+<p><button onclick="exportChart('html')">⬇ Скачать график (HTML)</button> <button onclick="exportChart('svg')">⬇ Скачать график (SVG)</button></p><div id="chart"></div></div>
+<div class="card"><h2>Перегоны и время</h2><div id="side"></div></div>
+</div>
+<script>
+const ST=[["Виноградск","ст."],["Керебеевка","пл."],["Зелёная Долина","о.п."],["Силонино","пл."],["Химическая","пл."],["Совное","о.п."],["Ленинская","ст."],["Олимпийская","ст."],["Советская","ст."],["Духово","пл."],["Кочи","пл."],["Восточное","пл."],["Меховидово","пл."],["Ручейск","ст."],["Вятичное","пл."],["Новокрупинка","пл."],["Озерки","ст."],["Гусарино","о.п."],["Змеево","ст."],["Холмовое","пл."],["Загорово","пл."],["Камыши","пл."],["Дробово","пл."],["Северное","ст."],["Дубровка","ст."]];
+const MAIN=ST.map((_,i)=>i).filter(i=>i!=6&&i!=7);
+const DIRS={vin:["Виноградско-Дубровское",MAIN],olymp:["Олимпийское",[7,6,5,8]]};
+const TY={fast:["Скорый / пассажирский","#ff0000",0],mail:["Почтово-багажный","#b020c0",0],sub:["Пригородный","#1a9a2a",0],city:["Городская электричка","#b5b800",0],exp:["Пригородный экспресс","#0b5d1e",0],freight:["Грузовой","#000000",0],spare:["Резервный","#000000",1]};
+let T=[],DIR="vin",G,HR={a:17,b:24},drag=null;
+const LS=()=>DIRS[DIR][1];
+const m=t=>{const[a,b]=t.split(":").map(Number);return a*60+b};
+const f=x=>{x=Math.round(x);return String(Math.floor(x/60)%24).padStart(2,"0")+":"+String(x%60).padStart(2,"0")};
+const nm=id=>ST[id][0];
+function tabs(){document.getElementById("tabs").innerHTML=Object.entries(DIRS).map(([k,v])=>`<button class="${k==DIR?'on':''}" onclick="setDir('${k}')">${v[0]}</button>`).join("")}
+function setDir(k){DIR=k;tabs();rows();draw()}
+function parseT(el,old){const v=el.value.replace(/\D/g,"");let h,mi;
+if(v.length<=2){h=Math.floor(old/60);mi=+v}else{mi=+v.slice(-2);h=+v.slice(0,-2)}
+if(v===""||h>23||mi>59){el.value=f(old);return null}return h*60+mi}
+function sub(t,i){const p=pts(t).filter(q=>q.mid);
+return`<tr><td colspan="7"><div class="sub"><button onclick="allStops(${i})">Стоянка 1 мин на всех станциях</button>
+<table><tr><th>Станция</th><th>Приб.</th><th>Отпр.</th><th>Стоянка, мин</th><th></th></tr>`+p.map(q=>`<tr><td>${nm(q.id)} (${ST[q.id][1]})</td>
+<td><input class="num ${q.set?'':'est'}" value="${f(q.t)}" onchange="setS(${i},${q.id},'arr',this)"></td>
+<td><input class="num ${q.set?'':'est'}" value="${f(q.d)}" onchange="setS(${i},${q.id},'dep',this)"></td>
+<td><select onchange="setD(${i},${q.id},this)"><option value="0"${Math.round(q.d-q.t)==0?' selected':''}>Без стоянки</option><option value="1"${Math.round(q.d-q.t)==1?' selected':''}>1 мин (стандарт)</option><option value="c"${Math.round(q.d-q.t)>1?' selected':''}>Своё</option></select>${Math.round(q.d-q.t)>1?` <input class="num" value="${Math.round(q.d-q.t)}" onchange="setS(${i},${q.id},'dwell',this)"> мин`:''}</td>
+<td>${q.set?`<button onclick="clr(${i},${q.id})">сброс</button>`:""}</td></tr>`).join("")+`</table></div></td></tr>`}
+function rows(){const l=LS(),o=v=>l.map(i=>`<option value="${i}"${i==v?" selected":""}>${ST[i][0]} (${ST[i][1]})</option>`).join("");
+document.getElementById("rows").innerHTML=T.map((t,i)=>t.dir!=DIR?"":`<tr>
+<td><input class="num" value="${t.num}" oninput="upd(${i},'num',this.value)"></td>
+<td><span class="sw" style="border-color:${TY[t.type][1]};border-top-style:${TY[t.type][2]?'dashed':'solid'}"></span><select onchange="upd(${i},'type',this.value);rows()">${Object.entries(TY).map(([k,v])=>`<option value="${k}"${k==t.type?" selected":""}>${v[0]}</option>`).join("")}</select></td>
+<td><select onchange="upd(${i},'from',+this.value);rows()">${o(t.from)}</select></td>
+<td><input class="num" value="${t.dep}" placeholder="ЧЧ:ММ" onchange="setT(${i},'dep',this)"></td>
+<td><select onchange="upd(${i},'to',+this.value);rows()">${o(t.to)}</select></td>
+<td><input class="num" value="${t.arr}" placeholder="ЧЧ:ММ" onchange="setT(${i},'arr',this)"></td>
+<td><button onclick="tog(${i})">${t.open?'▴':'▾'}</button> <button onclick="del(${i})">✕</button></td></tr>`+(t.open?sub(t,i):"")).join("")}
+function exportCSV(){
+const q=v=>'"'+String(v).replace(/"/g,'""')+'"',R=[["Направление","№","Тип","Откуда","Отпр.","Куда","Приб."]];
+T.forEach(t=>R.push([DIRS[t.dir][0],t.num,TY[t.type][0],nm(t.from),t.dep,nm(t.to),t.arr]));
+const blob=new Blob(["\ufeff"+R.map(r=>r.map(q).join(";")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="tablica_poezdov.csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function dl(name,text,type){const b=new Blob([text],{type}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportChart(kind){const sv=ch.querySelector("svg");if(!sv)return;const c=sv.cloneNode(true),pv=c.querySelector("#pv");if(pv)pv.remove();
+const col={"--grid":"#9db4ff","--grid2":"#2a3cff","--fg":"#1a1a1a","--bg":"#ffffff"};
+let x=new XMLSerializer().serializeToString(c).replace(/var\((--[a-z0-9]+)\)/g,(_,k)=>col[k]);
+x=x.replace(/ width="100%"/,"").replace(/style="[^"]*"/,'style="max-width:100%;height:auto;background:#fff;font-family:system-ui,sans-serif"');
+if(!/xmlns=/.test(x))x=x.replace("<svg",'<svg xmlns="http://www.w3.org/2000/svg"');
+if(kind=="svg"){dl("grafik.svg",'<?xml version="1.0" encoding="UTF-8"?>\n'+x,"image/svg+xml");return}
+dl("grafik.html",'<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>График движения — '+DIRS[DIR][0]+'</title><style>body{margin:12px;background:#fff;font-family:system-ui,sans-serif}h1{font-size:18px}svg{display:block;min-width:720px}div{overflow-x:auto}</style></head><body><h1>График движения: '+DIRS[DIR][0]+'</h1><div>'+x+'</div></body></html>',"text/html;charset=utf-8")}
+function upd(i,k,v){T[i][k]=v;if(k=="from"||k=="to")T[i].st={};draw()}
+function tog(i){T[i].open=!T[i].open;rows()}
+function setT(i,k,el){const v=parseT(el,T[i][k]?m(T[i][k]):1020);if(v==null)return;T[i][k]=f(v);el.value=T[i][k];draw();if(T[i].open)rows()}
+function setS(i,id,k,el){const q=pts(T[i]).find(x=>x.id==id);if(k=="dwell"){const w=parseInt(el.value,10);if(!(w>=0&&w<=600)){el.value=Math.round(q.d-q.t);return}const s2=T[i].st=T[i].st||{},a=Math.round(q.t);s2[id]={arr:a,dep:a+w};rows();draw();return}const v=parseT(el,k=="arr"?q.t:q.d);if(v==null)return;
+const st=T[i].st=T[i].st||{},o=st[id];
+if(k=="arr"){st[id]={arr:v,dep:o&&o.dep>=v?o.dep:v+1}}else{st[id]={arr:Math.min(o?o.arr:q.t,v),dep:v}}
+rows();draw()}
+function setD(i,id,sel){setS(i,id,'dwell',{value:sel.value=="c"?"2":sel.value})}
+function clr(i,id){delete T[i].st[id];rows();draw()}
+function allStops(i){const st=T[i].st={};pts(T[i]).filter(q=>q.mid).forEach(q=>{const a=Math.round(q.t);st[q.id]={arr:a,dep:a+1}});rows();draw()}
+function del(i){T.splice(i,1);rows();draw()}
+function addTrain(){const l=LS();T.push({num:"",type:"sub",dir:DIR,from:l[0],dep:"17:00",to:l[l.length-1],arr:"19:00",st:{}});rows();draw()}
+function pts(t){const l=DIRS[t.dir][1],a=l.indexOf(t.from),b=l.indexOf(t.to),n=Math.abs(b-a),d0=m(t.dep),e0=m(t.arr);
+if(a<0||b<0||!isFinite(d0+e0))return[];const p=[];
+for(let k=0;k<=n;k++){const pos=a+(b>a?k:-k),id=l[pos],base=n?d0+(e0-d0)*k/n:d0,ov=(t.st||{})[id],mid=k>0&&k<n;
+let ar=base,dp=base,set=false;
+if(k==0)ar=dp=d0;else if(k==n)ar=dp=e0;else if(ov){ar=ov.arr;dp=Math.max(ov.dep,ar);set=true}
+p.push({s:pos,id,t:ar,d:dp,mid,set,end:!mid})}return p}
+function draw(){
+const vt=T.filter(t=>t.dir==DIR),l=LS(),N=l.length;
+document.getElementById("side").innerHTML=(vt.length?"":`<p class="est">В направлении «${DIRS[DIR][0]}» поездов пока нет.</p>`)+vt.map(t=>{const p=pts(t),c=TY[t.type];
+return`<div class="tr"><b><span class="sw" style="border-color:${c[1]};border-top-style:${c[2]?'dashed':'solid'}"></span>№${t.num||"—"} · ${nm(t.from)} → ${nm(t.to)}</b>`+
+p.slice(1).map((q,k)=>{const r=p[k];return`<div class="s"><span>${nm(r.id)} → ${nm(q.id)}</span><span class="${(r.mid&&!r.set)||(q.mid&&!q.set)?'est':''}">${f(r.d)} – ${f(q.t)}</span></div>`+(q.d>q.t?`<div class="s est"><span>стоянка ${nm(q.id)}</span><span>${f(q.t)} – ${f(q.d)}</span></div>`:"")}).join("")+`</div>`}).join("")+
+(vt.length?`<p class="est">Серым показаны расчётные времена: промежуточные пункты считаются равномерно, пока вы не внесли свои.</p>`:"");
+const all=vt.flatMap(pts).flatMap(q=>[q.t,q.d]);const h0=Math.min(HR.a,Math.floor(Math.min(...all,1e9)/60)),h1=Math.max(HR.b,Math.ceil(Math.max(...all,-1)/60));
+const L=130,W=900,R=20,top=30,gap=Math.max(24,Math.min(90,576/(N-1))),H=top+gap*(N-1)+50,X=t=>L+(t/60-h0)/(h1-h0)*W;G={L,W,top,gap,h0,h1,N};
+let s=`<svg viewBox="0 0 ${L+W+R} ${H}" width="100%" style="min-width:720px;font-family:system-ui,sans-serif;touch-action:none;cursor:crosshair;user-select:none">`;
+for(let t=h0*60;t<=h1*60;t+=10){const hr=t%60==0,hf=t%30==0&&!hr;
+s+=`<line x1="${X(t)}" x2="${X(t)}" y1="${top}" y2="${top+gap*(N-1)}" stroke="${hr?'var(--grid2)':'var(--grid)'}" stroke-width="${hr?2:.7}"${hf?' stroke-dasharray="4 3"':''}/>`;
+if(hr)s+=`<text x="${X(t)}" y="18" text-anchor="middle" font-size="14" fill="var(--grid2)" font-weight="700">${t/60}</text><text x="${X(t)}" y="${H-14}" text-anchor="middle" font-size="14" fill="var(--grid2)" font-weight="700">${t/60}</text>`}
+l.forEach((id,i)=>{const q=ST[id],y=top+i*gap;s+=`<line x1="${L}" x2="${L+W}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="${q[1]=="ст."?1.2:.5}"/><text x="${L-6}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--fg)">${q[0]}</text>`});
+vt.forEach(t=>{const p=pts(t),c=TY[t.type];if(p.length<2)return;
+const pl=p.flatMap(q=>q.d>q.t?[[q.t,q.s],[q.d,q.s]]:[[q.t,q.s]]);
+s+=`<polyline fill="none" stroke="${c[1]}" stroke-width="1.6"${c[2]?' stroke-dasharray="7 5"':''} points="${pl.map(q=>X(q[0])+","+(top+q[1]*gap)).join(" ")}"/>`;
+const nn=String(t.num||"").replace(/[&<>]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]));
+if(nn)p.forEach((q,k)=>{if(!q.end)return;const x=k==0?q.d:q.t;s+=`<text x="${X(x)+3}" y="${top+q.s*gap-3}" font-size="11" font-weight="700" fill="${c[1]}">${nn}</text>`})});
+document.getElementById("chart").innerHTML=s+"</svg>"}
+const dt=document.getElementById("dt");dt.innerHTML=Object.entries(TY).map(([k,v])=>`<option value="${k}">${v[0]}</option>`).join("");dt.value="sub";
+const ch=document.getElementById("chart");
+function pt(e){const sv=ch.querySelector("svg"),r=sv.getBoundingClientRect(),vb=sv.viewBox.baseVal,x=(e.clientX-r.left)*vb.width/r.width,y=(e.clientY-r.top)*vb.height/r.height;
+const s=Math.max(0,Math.min(G.N-1,Math.round((y-G.top)/G.gap)));
+const t=Math.max(G.h0*60,Math.min(Math.min(G.h1*60,1439),Math.round(G.h0*60+(x-G.L)/G.W*(G.h1-G.h0)*60)));return{s,t,x,y}}
+ch.addEventListener("pointerdown",e=>{const p=pt(e);if(p.x<G.L-5)return;drag=p;ch.setPointerCapture(e.pointerId);e.preventDefault()});
+ch.addEventListener("pointermove",e=>{if(!drag)return;const sv=ch.querySelector("svg"),p=pt(e);let l=sv.querySelector("#pv");
+if(!l){l=document.createElementNS("http://www.w3.org/2000/svg","line");l.id="pv";l.setAttribute("stroke","#e33");l.setAttribute("stroke-width","2");l.setAttribute("stroke-dasharray","4 3");sv.appendChild(l)}
+const X=t=>G.L+(t/60-G.h0)/(G.h1-G.h0)*G.W;
+l.setAttribute("x1",X(drag.t));l.setAttribute("y1",G.top+drag.s*G.gap);l.setAttribute("x2",X(p.t));l.setAttribute("y2",G.top+p.s*G.gap)});
+ch.addEventListener("pointerup",e=>{if(!drag)return;const a=drag,b=pt(e);drag=null;if(a.s==b.s||a.t==b.t){draw();return}
+const[p,q]=a.t<=b.t?[a,b]:[b,a],l=LS();
+T.push({num:"",type:dt.value,dir:DIR,from:l[p.s],dep:f(p.t),to:l[q.s],arr:f(q.t),st:{}});rows();draw();
+const ins=document.querySelectorAll("#rows input.num");ins[ins.length-1].focus()});
+ch.addEventListener("pointercancel",()=>{drag=null;draw()});
+const AUTH={"голинк": ["Голинк", "6ab4c600a86fedd1110cfa2d7ebd190b", "7aa2b8122eec99e8bbe6e85873dd07ab9d2d858889aa8cae717dad0f04bbe1ae"], "перчик": ["Перчик", "14c50b74f1a97381cf9e9d6bf4ef6209", "4cd447d8dac90e864ff48629e418f5b9b27e0618e158e4d28412ed62a3800423"], "елик": ["Елик", "fd7e92e1a0fe083656be15d584afad44", "f2b73cdb09636adac9d22c97d0f980dffe169c8db303539b6d4f8ea449e5285c"], "михан": ["Михан", "6a8c0a6aa52a4a9a1193b0084e817d8c", "863c19be05b82cbbeb5cdab59a1bb0a18ef41dc8e15249ea198946025def661d"], "снейбл": ["Снейбл", "dbb27715fe64695a5c8825fe39afb563", "618c247493b65616585dfd39a58c2eff18165b7b725bfc255cbb6bb8a3f959f9"], "некитреил": ["Некитреил", "11304f4c184f5744b9204433afa50e3a", "6791287768fc3ab7eb634e1daf520e6159d6798a95002d8c9e5651b8a997a0a0"], "влад": ["Влад", "a00b4e2ba9dbbabc173f3e23035df7cc", "083288be34b58c3f09d3fd751edf861c464b5f0f54030144d125511f77729943"]},ITER=150000;
+const hx=h=>new Uint8Array(h.match(/../g).map(b=>parseInt(b,16)));
+async function derive(pw,saltHex){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveBits"]);
+const b=await crypto.subtle.deriveBits({name:"PBKDF2",salt:hx(saltHex),iterations:ITER,hash:"SHA-256"},k,256);
+return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+let tries=0;
+async function doLogin(){const e=document.getElementById("lerr"),b=document.getElementById("lb");
+const u=document.getElementById("lu").value.trim().toLowerCase(),p=document.getElementById("lp").value;
+if(!window.crypto||!crypto.subtle){e.textContent="Браузер не поддерживает проверку пароля (нужен https или локальный файл в Chrome/Edge/Firefox).";return}
+b.disabled=true;e.textContent="";
+const r=AUTH[u],h=await derive(p,r?r[1]:"00".repeat(16));
+if(r&&h===r[2]){tries=0;document.getElementById("who").textContent=r[0];document.getElementById("login").hidden=true;document.getElementById("app").hidden=false;document.getElementById("lp").value="";tabs();rows();draw();b.disabled=false;return}
+tries++;e.textContent="Неверный логин или пароль";
+setTimeout(()=>{b.disabled=false},Math.min(1000*tries,10000))}
+function logout(){T.length=0;document.getElementById("app").hidden=true;document.getElementById("login").hidden=false;document.getElementById("lu").value="";document.getElementById("lp").value=""}
+document.getElementById("login").addEventListener("keydown",e=>{if(e.key=="Enter")doLogin()});
+</script></body></html>
